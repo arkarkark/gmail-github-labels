@@ -14,7 +14,7 @@ var github_labels = [];
 var timezone_offset = -8;
 var repositories = [];
 
-function setupLabels() {
+function setupGmailGithubLabels() {
   getConfig();
   GmailApp.createLabel('github');
   getLabelNames().forEach(function(label) {
@@ -23,7 +23,7 @@ function setupLabels() {
   });
 }
 
-function doIt() {
+function runGmailGithubLabels() {
   processEmails();
 }
 
