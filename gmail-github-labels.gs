@@ -14,6 +14,9 @@ var github_labels = [];
 var timezone_offset = -8;
 var repositories = [];
 
+var bugs = {};
+var props = PropertiesService.getUserProperties();
+
 function setupGmailGithubLabels() {
   getConfig();
   GmailApp.createLabel('github');
@@ -27,21 +30,46 @@ function runGmailGithubLabels() {
   processEmails();
 }
 
+function debugShowProperties() {
+  var p = props.getProperties();
+  var keys = Object.keys(p);
+  for (var i = 0; i < keys.length; i++) {
+    Logger.log('%s:%s: %s', i, keys[i], p[keys[i]]);
+  }
+}
+
+var yesterday = function() {
+  var d = new Date();
+  d.setHours(d.getHours() + timezone_offset);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
+
 var getLabelNames = function() {
   return [].concat(github_labels, 'open,closed,mine'.split(','));
 };
 
+var queryString = function(params) {
+  var qs = [];
+  var keys = Object.keys(params);
+  for (var i = 0; i < keys.length; i++) {
+    qs.push(encodeURIComponent(keys[i]) + '=' + encodeURIComponent(params[keys[i]]));
+  }
+  return qs.join('&');
+};
+
+
 var getConfig = function() {
-  var github;
+  var githubSheet;
   SpreadsheetApp.getActiveSpreadsheet().getSheets().forEach(function(sheet) {
     if (sheet.getName() == 'gmail-github-labels') {
-      github = sheet;
+      githubSheet = sheet;
     }
   });
-  if (github) {
+  if (githubSheet) {
     Logger.log('Found sheet with config!');
   }
-  var values = github.getRange(1, 1, github.getMaxRows() - 1, github.getMaxColumns() - 1).getValues();
+  var values = githubSheet.getRange(1, 1, githubSheet.getMaxRows() - 1, githubSheet.getMaxColumns() - 1).getValues();
   for (var row in values) {
     if (values[row][0]) {
       switch (values[row][0]) {
@@ -61,15 +89,6 @@ var getConfig = function() {
   Logger.log('repositories: %s', JSON.stringify(repositories));
 };
 
-var queryString = function(params) {
-  var qs = [];
-  var keys = Object.keys(params);
-  for (var i = 0; i < keys.length; i++) {
-    qs.push(encodeURIComponent(keys[i]) + '=' + encodeURIComponent(params[keys[i]]));
-  }
-  return qs.join('&');
-};
-
 var github = function(path, params) {
   params.access_token = access_token;
   var url = 'https://api.github.com' + path + '?' + queryString(params);
@@ -85,20 +104,59 @@ var getGmailLabels = function() {
   return labels;
 };
 
-var processMessage = function(msg, th, labels, bugs) {
+var getBodyLastCalled = 0;
+
+var getBugUrlFromMessage = function(msg) {
+  var now = new Date().getTime(); // milliseconds
+  var diff = now - getBodyLastCalled;
+  if (diff < 1000) {
+    Logger.log('throttling call to getPlainBody: ' + diff + ' milliseconds');
+    Utilities.sleep(diff);
+  }
+  getBodyLastCalled = now;
+
   var content = msg.getPlainBody().split('\n');
   if (!content.length) {
     return false;
   }
   var lastLine = content[content.length - 1];
-  var match = lastLine.match(new RegExp('^(https://github.com/[^/]*/[^/]*/issues/[0-9]+)'));
+  var match = lastLine.match(new RegExp('^(https://github.com/[^/]*/[^/]*/(issues|pull)/[0-9]+)'));
   if (!match) {
     return false;
   }
-  var bugUrl = match[1];
-  var bug =  bugs[bugUrl];
+  return match[1];
+};
+
+var getBugForThread = function(th) {
+  var propKey = 'bugUrlForThreadId:' + th.getId();
+  Logger.log('finding bug for thread: ' + propKey);
+  var bugUrl = props.getProperty(propKey);
+  if (bugUrl) {
+    Logger.log('found bugUrl via props!');
+    return bugs[bugUrl];
+  }
+  var msgs = th.getMessages();
+  Logger.log(msgs.length + ' messages in: ' + th.getFirstMessageSubject());
+  if (!msgs.length) {
+    return;
+  }
+  var idx = 0;
+  while (idx < msgs.length) {
+    bugUrl = getBugUrlFromMessage(msgs[idx]);
+    if (bugUrl) {
+      logger.Log('found it at index: ' + idx + ' // ' + bugUrl);
+      props.setProperty(propKey, bugUrl);
+      return bugs[bugUrl];
+    }
+    idx++;
+  }
+  Logger.log('unable to find bug for thread: ' + th.getId() + ' // ' + th.getFirstMessageSubject());
+};
+
+var processThread = function(th) {
+  var bug = getBugForThread(th);
   if (!bug) {
-    return false;
+    return;
   }
   var threadLabels = th.getLabels();
   Logger.log('bug: ' + bug.number + ' has this many gmail labels: ' + threadLabels.length );
@@ -124,20 +182,11 @@ var processMessage = function(msg, th, labels, bugs) {
   bug.labels.forEach(function(l) {
     label(l.name, !open ? false : github_labels.indexOf(l.name) != -1);
   });
-  return true;
-};
-
-var yesterday = function() {
-  var d = new Date();
-  d.setHours(d.getHours() + timezone_offset);
-  d.setDate(d.getDate() - 1);
-  return d.toISOString().slice(0, 10);
 };
 
 var processEmails = function() {
   getConfig();
   labels = getGmailLabels();
-  var bugs = {};
   var urls = ['/issues'];
   repositories.forEach(function(repo) {
     urls.push('/repos/' + repo + '/issues');
@@ -147,19 +196,5 @@ var processEmails = function() {
       bugs[bug.html_url] = bug;
     });
   });
-  var count = 0;
-  GmailApp.search('"view it on github" after:' + yesterday()).forEach(function(th) {
-    var msgs = th.getMessages();
-    Logger.log(count + ' : ' + msgs.length + ' messages in: ' + th.getFirstMessageSubject());
-    if (!msgs.length) {
-      return;
-    }
-    var idx = 0;
-    while (idx < msgs.length && !processMessage(msgs[idx], th, labels, bugs)) {
-      Utilities.sleep(1000);
-      idx++;
-    }
-    Utilities.sleep(1000);
-    count++;
-  });
+  GmailApp.search('"view it on github" after:' + yesterday()).forEach(processThread);
 };
