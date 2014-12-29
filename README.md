@@ -14,7 +14,7 @@ labels on the gmail thread to match the labels and state of the issue.
 # Setup
 
 Make a new Sheet in google docs (you can reuse the one you used for gmail-snooze if you want).
-Make sure there is a sheet called `gmail-github-labels` (That's at the bottom, it might default to something like `Sheet1`). Set it up like this:
+Make sure there is a sheet called `gmail-github-labels` (That's at the bottom, it might default to something like `Sheet1`). Set it up like this (you can probably cut and paste this table right into a sheet):
 
 variable | value(s) |     |     |
 -------- | -------- | --- | --- |
@@ -29,6 +29,10 @@ repositories | arkarkark/gmail-github-labels
    * `labels` is the github labels you are interested in. Gmail labels will be made for each of these.
    * `timezone_offset` allows us to work out when yesterday was.
    * `repositories` list all the respositories you're interested in tracking (it's optional.
+
+Here's what it should look like:
+
+![screenshot](config.png)
 
 Now click `Tools` and `Script editor...` from the menu and paste in [`gmail-github-labels.gs`](gmail-github-labels.gs) and save it.
 
