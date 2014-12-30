@@ -144,7 +144,7 @@ var getBugForThread = function(th) {
   while (idx < msgs.length) {
     bugUrl = getBugUrlFromMessage(msgs[idx]);
     if (bugUrl) {
-      logger.Log('found it at index: ' + idx + ' // ' + bugUrl);
+      Logger.Log('found it at index: ' + idx + ' // ' + bugUrl);
       props.setProperty(propKey, bugUrl);
       return bugs[bugUrl];
     }
